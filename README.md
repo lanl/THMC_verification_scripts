@@ -51,7 +51,7 @@ This repository contains benchmark problems designed to validate and compare num
 
 ---
 
-### 7. Noda_TM (TM) *(In Development)*
+### 7. Noda_TM (TM)
 **Type:** Thermo-Mechanical (TM)  
 **Description:** Models a hollow cylinder with different temperature conditions applied to the inner and outer surfaces.  
 **Validation:** Will be compared with analytical solutions for both temperature distribution and induced stresses.
