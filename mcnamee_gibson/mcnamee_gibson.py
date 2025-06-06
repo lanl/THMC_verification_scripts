@@ -129,32 +129,44 @@ def displacement_top(t, x_array, P0, L0, Cv, v, G):
         None 
 
     """
-    print("\nComputing displacement")
+    print("\nComputing displacement (with increased limlst)...")
     
-    t=t/(L0**2/Cv)       # Dimensionless time
-    xx=x_array/L0        # Dimensionless z-coordinate
-    z=0                  # Top boundary in x-z system z equals 0
-    eta = (1-v)/(1-2*v)  # Auxiliary elastic constant    
-#    E=60.0E9            # Young's modulus 
-#    p0=1E6              # Strip Loading Pressure (Pascals)
-#    G=E0/2/(1+v)        # Shear modulus  
-
-    var1 = [
-        eta/(2*eta -1)
-        * quad(lambda ksi: 1/ksi*2/np.pi/ksi*np.cos(x*ksi)*np.sin(ksi)* \
-                           ( math.erf(ksi*np.sqrt(t))- \
-                              (eta-1)/eta*
-                                 ( 1-np.exp((1-2*eta)*ksi**2*t/eta/eta)* \
-                                     math.erfc((eta-1)/eta*ksi*np.sqrt(t)) )   ),
-            0,
+    t_dimless = t / (L0**2 / Cv)
+    xx        = x_array / L0
+    eta       = (1 - v) / (1 - 2 * v)
+    
+    eps = 1e-8
+    
+    def f_kernel(ksi, t_rel):
+        bracket = (
+            math.erf(ksi * math.sqrt(t_rel))
+            - (eta - 1) / eta
+              * (1 - math.exp((1 - 2 * eta) * ksi**2 * t_rel / eta**2)
+                     * math.erfc((eta - 1) / eta * ksi * math.sqrt(t_rel)))
+        )
+        # (sin(κ)/κ) is stable near κ=0, and bracket/κ is O(1) near κ=0.
+        return (
+            (eta / (2 * eta - 1))
+            * (2 / np.pi)
+            * (math.sin(ksi) / ksi)   # = sinc(κ)
+            * (bracket / ksi)
+        )
+    
+    var1 = []
+    for x in xx:
+        # By adding limlst=500, we allow up to 500 "oscillatory cycles" to be handled.
+        val, err = quad(
+            f_kernel,
+            eps,
             np.inf,
-#           5000,
-            epsabs=1e-5,
-            epsrel=1e-5,
-            limit=100000
-        )[0]
-        for x in xx
-       ]
+            args=(t_dimless,),
+            weight='cos',
+            wvar=x,
+            epsabs=1e-6,
+            epsrel=1e-6,
+            limlst=500
+        )
+        var1.append(val)
         
     """
     # calc initial instant displacement, but this integrand requires high precision
@@ -175,10 +187,10 @@ def displacement_top(t, x_array, P0, L0, Cv, v, G):
     displacement  = ( np.array(var1)/2/G + np.array(var2) ) *p0*L0  
     """     
     
-    displacement1  = np.array(var1)          # this is dimensionless 2*G*delta_u 
-    displacement  = np.array(var1)/2/G*P0*L0 # this is dimensional delta_u [m]  
-
-    print("Computing displacement - done")
+    displacement1 = np.array(var1)            # dimensionless 2·G·δu
+    displacement  = displacement1 / (2 * G) * P0 * L0  # [m]
+    
+    print("Computing displacement (with increased limlst) - done")
     return displacement
 
 
@@ -438,6 +450,7 @@ def make_plots(time, x_array, pressure, displacement):
     ax1.set_xlabel(u'z-distance [m]')
     ax1.set_ylabel(u'Pressure [Pa]') 
     filename = f"McName-Gibson_pressure_solution_left_boundary_{time}s.png"
+    plt.title(filename)
     print(f"Saving plots into file {filename}")
     plt.savefig(filename)
     print(f"Saving plots into file {filename} - done")
@@ -445,14 +458,15 @@ def make_plots(time, x_array, pressure, displacement):
     fig2,ax2 = plt.subplots(nrows=1)
     ax2.plot(x_array, displacement)
     ax2.set_xlabel(u'x-distance [m]')
-    ax2.set_ylabel(u'Displacement delta_u [m]') 
+    ax2.set_ylabel(u'Displacement \u0394u [m]') 
     filename = f"McName-Gibson_displacement_solution_top_boundary_{time}s.png"
+    plt.title(filename)
     print(f"Saving plots into file {filename}")
     plt.savefig(filename)
     print(f"Saving plots into file {filename} - done")
     
     
-def make_plots_point(time, x_array, pressure, displacement):
+def make_plots_point(time, obs_point_loc, pressure, displacement):
 
     """ Makes plot of solutions and save to file 
 
@@ -460,8 +474,7 @@ def make_plots_point(time, x_array, pressure, displacement):
     ------------------
         time : float
             time in seconds
-        x_array : numpy array
-            x values of the domain
+        obs_point_loc : observation point
         pressure : numpy array
             pressure solution 
         displacement : numpy array
@@ -482,8 +495,9 @@ def make_plots_point(time, x_array, pressure, displacement):
     ax1.plot(time, pressure)
     ax1.set_xlabel(u'Time [s]')
     ax1.set_ylabel(u'Pressure [Pa]') 
-    ax1.set_xscale('log')
-    filename = f"McName-Gibson_pressure_solution_left_boundary_point_{x_array}m.png"
+    ax1.set_xscale('linear')
+    filename = f"McName-Gibson_pressure_solution_left_boundary_point_{obs_point_loc}m.png"
+    plt.title(filename)
     print(f"Saving plots into file {filename}")
     plt.savefig(filename)
     print(f"Saving plots into file {filename} - done")
@@ -491,9 +505,10 @@ def make_plots_point(time, x_array, pressure, displacement):
     fig2,ax2 = plt.subplots(nrows=1)
     ax2.plot(time, displacement)
     ax2.set_xlabel(u'Time [s]')
-    ax2.set_ylabel(u'Displacement delta_u [m]') 
-    ax2.set_xscale('log')
-    filename = f"McName-Gibson_displacement_solution_top_boundary_point_{x_array}m.png"
+    ax2.set_ylabel(u'Displacement \u0394u [m]') 
+    ax2.set_xscale('linear')
+    filename = f"McName-Gibson_displacement_solution_top_boundary_point_{obs_point_loc}m.png"
+    plt.title(filename)
     print(f"Saving plots into file {filename}")
     plt.savefig(filename)
     print(f"Saving plots into file {filename} - done")
@@ -502,21 +517,21 @@ def make_plots_point(time, x_array, pressure, displacement):
 def main():
     print("Computing solution for McName-Gibson 1960")
     # Model Parameters 
-    P0 = 1.0e6     # Strip loading pressure (Pascals)
+    P0 = 7e3     # Strip loading pressure (Pascals)
     L0 = 1.0         # Strip loading length (meters)
-    k = 3.0e-14    # Matrix permeability (m^2) =50[mD] 
-    phi = 0.1      # Porosity 
-    E  = 60.0E9    # Young's modulus
+    k = 1.0e-12    # Matrix permeability (m^2) =50[mD] 
+    phi = 0.2      # Porosity 
+    E  = 1.0E9    # Young's modulus
     v  = 0.0       # Poisson's ratio
     biot  = 1.0       # Biot coefficient
     Cf = 0         # Fluid compressbility
     Cm = 1e-10     # Porous medium compressbility
     miu = 0.001     # Dynamic viscosity
-    G  = E/2/(1+v) # Shear modulus    
-    K_c = E*(1-v) / (1+v) / (1-2*v) # Constrained modulus
+    G = E / (2 * (1+v)) # Shear modulus    
+    K_c = E*(1 - v) / ((1 + v)*(1 - 2*v)) # Constrained modulus
     # M  = 1 /( (por*Cf + (b-por)*(1-b)*Cm) ) # Biot modulus
     ss = phi*Cf + (biot-phi)*(1-biot)*Cm # Specfic storage
-    Cv = k*K_c / miu / (K_c*ss+biot*biot) # Coefficient of consolidation 
+    Cv = k*K_c / miu / (K_c*ss+biot**2) # Coefficient of consolidation 
     
 
     print("\nParameters")
@@ -528,9 +543,9 @@ def main():
     #########################################################################
     # calculate pressure along the left boundary at the end of the given elapsed time
     # calculate displacement along the top boundary at the end of the given elapsed time
-    z = np.concatenate( (np.linspace(0.01, 0.1, 10), np.linspace(0.1, 1, 19), np.linspace(1, 20, 191)) )
+    z = np.concatenate( (np.linspace(0.01, 0.1, 100), np.linspace(0.1, 1, 19), np.linspace(1, 10, 100)) )
     
-    t = 1
+    t = 1.0
     pressure     = excess_pore_pressure_left(t, z, P0, L0, Cv, v)
     displacement = displacement_top(t, z, P0, L0, Cv, v, G)
     write_files(t, z, pressure, displacement)
@@ -551,7 +566,7 @@ def main():
     #########################################################################
     # calculate pressure at the specific points on the left boundary
     # calculate displacement at the specific points on the left boundary
-    t_array = np.concatenate( (np.logspace(-6, -1, 50), np.logspace(-1, 1, 30) ) )
+    t_array = np.linspace(1e-15, 2.0, 100)
     
     obs_point_loc = 0.5*L0
     pressure     = excess_pore_pressure_left_point(t_array, obs_point_loc, P0, L0, Cv, v)
